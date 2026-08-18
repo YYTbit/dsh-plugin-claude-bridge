@@ -12,6 +12,7 @@
  * @module dsh-plugin-claude-bridge
  */
 
+import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { loadMemories, renderMemories, encodeProjectPath } from './memory.js'
@@ -72,9 +73,9 @@ export function apply(ctx: any, config: Config = {}): void {
     ctx.systemPrompt.context({
       name: 'claude-bridge:memory',
       order: 120,
-      text: async () => {
+      text: () => {
         try {
-          const memories = await loadMemories(memoryDir)
+          const memories = loadMemories(memoryDir)
           return renderMemories(memories, maxMemoryBytes)
         } catch {
           return ''
@@ -88,9 +89,9 @@ export function apply(ctx: any, config: Config = {}): void {
     ctx.systemPrompt.context({
       name: 'claude-bridge:skills',
       order: 121,
-      text: async () => {
+      text: () => {
         try {
-          const skills = await loadSkills(skillsDirs)
+          const skills = loadSkills(skillsDirs)
           return renderSkillCatalog(skills.slice(0, maxSkills))
         } catch {
           return ''
@@ -104,10 +105,9 @@ export function apply(ctx: any, config: Config = {}): void {
     ctx.systemPrompt.section({
       name: 'claude-bridge:global',
       order: 5,
-      text: async () => {
+      text: () => {
         try {
-          const { readFile } = await import('node:fs/promises')
-          const content = await readFile(globalClaudeMd, 'utf8')
+          const content = readFileSync(globalClaudeMd, 'utf8')
           return content.length > 0
             ? `# Global Instructions (from Claude Code)\n\n${content}`
             : ''

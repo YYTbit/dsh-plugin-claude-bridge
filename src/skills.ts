@@ -4,18 +4,11 @@
  * @module dsh-plugin-claude-bridge/skills
  */
 
+import { readdirSync, statSync, existsSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { SkillEntry } from './types.ts'
 import { parseFrontmatter } from './parser.js'
-
-/** Dynamically import Node.js fs/promises. */
-async function fs() {
-  return import('node:fs/promises')
-}
-
-/** Dynamically import Node.js path. */
-async function path() {
-  return import('node:path')
-}
 
 /**
  * Discover skill directories in a given root.
@@ -23,30 +16,25 @@ async function path() {
  *   - `<root>/<name>/SKILL.md` (directory bundle)
  *   - `<root>/<name>.md` (flat file)
  */
-async function discoverSkillPaths(root: string): Promise<string[]> {
-  const fsMod = await fs()
-  const pathMod = await path()
+function discoverSkillPaths(root: string): string[] {
   const paths: string[] = []
 
   let entries: string[]
   try {
-    entries = await fsMod.readdir(root)
+    entries = readdirSync(root)
   } catch {
     return []
   }
 
   for (const entry of entries) {
-    const fullPath = pathMod.join(root, entry)
+    const fullPath = join(root, entry)
     try {
-      const stat = await fsMod.stat(fullPath)
+      const stat = statSync(fullPath)
       if (stat.isDirectory()) {
         // Directory bundle: look for SKILL.md
-        const skillFile = pathMod.join(fullPath, 'SKILL.md')
-        try {
-          await fsMod.access(skillFile)
+        const skillFile = join(fullPath, 'SKILL.md')
+        if (existsSync(skillFile)) {
           paths.push(skillFile)
-        } catch {
-          // No SKILL.md in this directory
         }
       } else if (stat.isFile() && entry.endsWith('.md') && entry !== 'MEMORY.md') {
         // Flat file skill
@@ -62,16 +50,18 @@ async function discoverSkillPaths(root: string): Promise<string[]> {
 
 /**
  * Load all skills from one or more directories.
+ *
+ * Synchronous by design: dsh renders system-prompt `text` synchronously
+ * (it does not await the provider), so the caller must return a plain string.
  */
-export async function loadSkills(dirs: string[]): Promise<SkillEntry[]> {
-  const fsMod = await fs()
+export function loadSkills(dirs: string[]): SkillEntry[] {
   const skills: SkillEntry[] = []
 
   for (const dir of dirs) {
-    const paths = await discoverSkillPaths(dir)
+    const paths = discoverSkillPaths(dir)
     for (const skillPath of paths) {
       try {
-        const content = await fsMod.readFile(skillPath, 'utf8')
+        const content = readFileSync(skillPath, 'utf8')
         const { meta, body } = parseFrontmatter(content)
         if (body.length === 0) continue
 
