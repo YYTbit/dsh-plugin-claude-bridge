@@ -6,16 +6,8 @@
 
 import type { SkillEntry } from './types.ts'
 import { parseFrontmatter } from './parser.js'
-
-/** Dynamically import Node.js fs/promises. */
-async function fs() {
-  return import('node:fs/promises')
-}
-
-/** Dynamically import Node.js path. */
-async function path() {
-  return import('node:path')
-}
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 
 /**
  * Discover skill directories in a given root.
@@ -23,27 +15,25 @@ async function path() {
  *   - `<root>/<name>/SKILL.md` (directory bundle)
  *   - `<root>/<name>.md` (flat file)
  */
-async function discoverSkillPaths(root: string): Promise<string[]> {
-  const fsMod = await fs()
-  const pathMod = await path()
+function discoverSkillPaths(root: string): string[] {
   const paths: string[] = []
 
   let entries: string[]
   try {
-    entries = await fsMod.readdir(root)
+    entries = readdirSync(root)
   } catch {
     return []
   }
 
   for (const entry of entries) {
-    const fullPath = pathMod.join(root, entry)
+    const fullPath = join(root, entry)
     try {
-      const stat = await fsMod.stat(fullPath)
+      const stat = statSync(fullPath)
       if (stat.isDirectory()) {
         // Directory bundle: look for SKILL.md
-        const skillFile = pathMod.join(fullPath, 'SKILL.md')
+        const skillFile = join(fullPath, 'SKILL.md')
         try {
-          await fsMod.access(skillFile)
+          statSync(skillFile)
           paths.push(skillFile)
         } catch {
           // No SKILL.md in this directory
@@ -62,16 +52,16 @@ async function discoverSkillPaths(root: string): Promise<string[]> {
 
 /**
  * Load all skills from one or more directories.
+ * Synchronous: dsh's system prompt `text` providers must be synchronous.
  */
-export async function loadSkills(dirs: string[]): Promise<SkillEntry[]> {
-  const fsMod = await fs()
+export function loadSkills(dirs: string[]): SkillEntry[] {
   const skills: SkillEntry[] = []
 
   for (const dir of dirs) {
-    const paths = await discoverSkillPaths(dir)
+    const paths = discoverSkillPaths(dir)
     for (const skillPath of paths) {
       try {
-        const content = await fsMod.readFile(skillPath, 'utf8')
+        const content = readFileSync(skillPath, 'utf8')
         const { meta, body } = parseFrontmatter(content)
         if (body.length === 0) continue
 
@@ -96,13 +86,17 @@ export async function loadSkills(dirs: string[]): Promise<SkillEntry[]> {
  * Render skills into a catalog block for the system prompt.
  * Only includes name and description (not full content) to keep context small.
  */
-export function renderSkillCatalog(skills: SkillEntry[]): string {
+export function renderSkillCatalog(
+  skills: SkillEntry[],
+  title = 'Available Skills (from Claude Code)',
+  blurb = 'These skills are loaded from Claude Code. Invoke them by name when relevant.',
+): string {
   if (skills.length === 0) return ''
 
   const lines: string[] = [
-    '# Available Skills (from Claude Code)',
+    `# ${title}`,
     '',
-    'These skills are loaded from Claude Code. Invoke them by name when relevant.',
+    blurb,
     '',
   ]
 
@@ -112,6 +106,19 @@ export function renderSkillCatalog(skills: SkillEntry[]): string {
   }
 
   return lines.join('\n')
+}
+
+/**
+ * Deduplicate skills by name, keeping the first occurrence.
+ * Useful when several user skill directories contain the same skill.
+ */
+export function uniqueByName(skills: SkillEntry[]): SkillEntry[] {
+  const seen = new Set<string>()
+  return skills.filter((skill) => {
+    if (seen.has(skill.name)) return false
+    seen.add(skill.name)
+    return true
+  })
 }
 
 /**
