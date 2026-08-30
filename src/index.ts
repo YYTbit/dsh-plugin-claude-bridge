@@ -14,8 +14,9 @@
 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { loadMemories, renderMemories, encodeProjectPath } from './memory.js'
-import { loadSkills, renderSkillCatalog } from './skills.js'
+import { loadSkills, renderSkillCatalog, uniqueByName } from './skills.js'
 
 /** Plugin name for dsh diagnostics. */
 export const name = 'claude-bridge'
@@ -31,8 +32,10 @@ export interface Config {
   projectKey?: string
   /** Maximum bytes of memories to inject into context. Default: 8192. */
   maxMemoryBytes?: number
-  /** Maximum number of skills to list in catalog. Default: 30. */
+  /** Maximum number of Claude Code skills to list in catalog. Default: 30. */
   maxSkills?: number
+  /** Maximum number of user-defined skills to list in catalog. Default: 30. */
+  maxUserSkills?: number
   /** Enable memory injection. Default: true. */
   enableMemory?: boolean
   /** Enable skill catalog injection. Default: true. */
@@ -46,25 +49,25 @@ export interface Config {
 /**
  * Plugin entry point. Called by dsh's Cordis loader.
  *
- * Registers three system prompt context sections:
+ * Registers four system prompt context sections:
  * 1. `claude-bridge:memory` — relevant memories from the current project
- * 2. `claude-bridge:skills` — available skills catalog
- * 3. `claude-bridge:global` — global CLAUDE.md instructions
+ * 2. `claude-bridge:skills` — Claude Code skills catalog
+ * 3. `claude-bridge:user-skills` — user-defined local skill directories
+ * 4. `claude-bridge:global` — global CLAUDE.md instructions
  */
 export function apply(ctx: any, config: Config = {}): void {
   const claudeHome = config.claudeHome ?? join(homedir(), '.claude')
   const projectKey = config.projectKey ?? encodeProjectPath(process.cwd())
   const maxMemoryBytes = config.maxMemoryBytes ?? 8192
   const maxSkills = config.maxSkills ?? 30
+  const maxUserSkills = config.maxUserSkills ?? 30
   const enableMemory = config.enableMemory !== false
   const enableSkills = config.enableSkills !== false
   const enableGlobal = config.enableGlobalInstructions !== false
 
   const memoryDir = join(claudeHome, 'projects', projectKey, 'memory')
-  const skillsDirs = [
-    join(claudeHome, 'skills'),
-    ...(config.extraSkillDirs ?? []),
-  ]
+  const skillsDirs = [join(claudeHome, 'skills')]
+  const userSkillDirs = config.extraSkillDirs ?? []
   const globalClaudeMd = join(claudeHome, 'CLAUDE.md')
 
   // --- Memory context (dynamic: re-reads on each request) ---
@@ -72,10 +75,9 @@ export function apply(ctx: any, config: Config = {}): void {
     ctx.systemPrompt.context({
       name: 'claude-bridge:memory',
       order: 120,
-      text: async () => {
+      text: () => {
         try {
-          const memories = await loadMemories(memoryDir)
-          return renderMemories(memories, maxMemoryBytes)
+          return renderMemories(loadMemories(memoryDir), maxMemoryBytes)
         } catch {
           return ''
         }
@@ -83,15 +85,34 @@ export function apply(ctx: any, config: Config = {}): void {
     })
   }
 
-  // --- Skills catalog (dynamic: reflects newly added skills) ---
+  // --- Claude Code skills catalog (dynamic: reflects newly added skills) ---
   if (enableSkills && ctx.systemPrompt?.context) {
     ctx.systemPrompt.context({
       name: 'claude-bridge:skills',
       order: 121,
-      text: async () => {
+      text: () => {
         try {
-          const skills = await loadSkills(skillsDirs)
-          return renderSkillCatalog(skills.slice(0, maxSkills))
+          return renderSkillCatalog(loadSkills(skillsDirs).slice(0, maxSkills))
+        } catch {
+          return ''
+        }
+      },
+    })
+  }
+
+  // --- User-defined local skill directories (dynamic) ---
+  if (enableSkills && userSkillDirs.length > 0 && ctx.systemPrompt?.context) {
+    ctx.systemPrompt.context({
+      name: 'claude-bridge:user-skills',
+      order: 122,
+      text: () => {
+        try {
+          const skills = uniqueByName(loadSkills(userSkillDirs)).slice(0, maxUserSkills)
+          return renderSkillCatalog(
+            skills,
+            'Available Skills (from local skill directories)',
+            'These skills are loaded from user-defined local skill directories. Invoke them by name when relevant.',
+          )
         } catch {
           return ''
         }
@@ -104,10 +125,9 @@ export function apply(ctx: any, config: Config = {}): void {
     ctx.systemPrompt.section({
       name: 'claude-bridge:global',
       order: 5,
-      text: async () => {
+      text: () => {
         try {
-          const { readFile } = await import('node:fs/promises')
-          const content = await readFile(globalClaudeMd, 'utf8')
+          const content = readFileSync(globalClaudeMd, 'utf8')
           return content.length > 0
             ? `# Global Instructions (from Claude Code)\n\n${content}`
             : ''

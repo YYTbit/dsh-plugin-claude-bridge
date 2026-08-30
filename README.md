@@ -29,9 +29,10 @@ Works out of the box with zero configuration. All options are optional:
     maxMemoryBytes: 8192
     enableSkills: true
     maxSkills: 30
+    maxUserSkills: 30
     enableGlobalInstructions: true
     extraSkillDirs:
-      - '~/.agents/skills'
+      - '/Users/you/.agents/skills'
 ```
 
 ## How it works
@@ -42,7 +43,19 @@ Claude Code stores memories as individual markdown files with YAML frontmatter. 
 
 ### Skill catalog
 
-Skills from `~/.claude/skills/` are discovered and their names and descriptions are injected as a catalog in the system prompt.
+Skills are injected as two separate catalog sections in the system prompt, so
+Claude Code's own skills and your personal skills stay distinct:
+
+1. **Claude Code skills** — discovered from `~/.claude/skills/`, listed under
+   *Available Skills (from Claude Code)*. Capped by `maxSkills`.
+2. **User-defined skill directories** — discovered from each path in
+   `extraSkillDirs` (e.g. `~/.agents/skills` where `npx skills add -g` installs
+   ecosystem skills), listed under *Available Skills (from local skill
+   directories)*, deduplicated by name, and capped by `maxUserSkills`.
+
+Note: `extraSkillDirs` paths are passed straight to Node's `fs`, so use
+absolute paths — `~` is not expanded. Use the same paths in other bridge
+plugins to keep every agent's catalog in sync.
 
 ### Global instructions
 

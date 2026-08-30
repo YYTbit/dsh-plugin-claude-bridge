@@ -4,7 +4,7 @@
 - insert:
     - id: claude-bridge
       name: dsh-plugin-claude-bridge
-      inject: []
+      inject: ['systemPrompt']
       config:
         maxMemoryBytes: 8192
         maxSkills: 30

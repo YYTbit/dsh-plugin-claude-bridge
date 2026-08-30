@@ -7,10 +7,7 @@
 import type { MemoryEntry } from './types.ts'
 import { parseFrontmatter, extractMetadataType } from './parser.js'
 
-/** Dynamically import Node.js fs/promises (works in both ESM and CJS). */
-async function fs() {
-  return import('node:fs/promises')
-}
+import { readdirSync, readFileSync } from 'node:fs'
 
 /**
  * Encode a filesystem path into Claude Code's project key format.
@@ -34,12 +31,12 @@ export function detectMemoryDir(projectsDir: string, cwd: string): string {
 /**
  * Load all memory files from a directory.
  * Returns entries sorted by type priority: feedback > project > reference > user > unknown.
+ * Synchronous: dsh's system prompt `text` providers must be synchronous.
  */
-export async function loadMemories(dir: string): Promise<MemoryEntry[]> {
-  const fsMod = await fs()
+export function loadMemories(dir: string): MemoryEntry[] {
   let entries: string[]
   try {
-    entries = (await fsMod.readdir(dir))
+    entries = readdirSync(dir)
       .filter((f: string) => f.endsWith('.md') && f !== 'MEMORY.md')
   } catch {
     return []
@@ -48,7 +45,7 @@ export async function loadMemories(dir: string): Promise<MemoryEntry[]> {
   const memories: MemoryEntry[] = []
   for (const file of entries) {
     try {
-      const content = await fsMod.readFile(`${dir}/${file}`, 'utf8')
+      const content = readFileSync(`${dir}/${file}`, 'utf8')
       const { meta, body } = parseFrontmatter(content)
       if (body.length === 0) continue
 
